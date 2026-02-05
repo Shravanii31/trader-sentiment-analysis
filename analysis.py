@@ -2,28 +2,24 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# =========================
-# LOAD DATA
-# =========================
+# ---------------------------
+# Load datasets
+# ---------------------------
 sentiment = pd.read_csv("fear_greed.csv")
 trades = pd.read_csv("hyperliquid_trades.csv")
 
 print("Sentiment shape:", sentiment.shape)
 print("Trades shape:", trades.shape)
 
-# =========================
-# BASIC DATA CHECKS
-# =========================
-print("\nMissing values in trades:")
-print(trades.isna().sum())
-
-print("\nDuplicate rows in trades:", trades.duplicated().sum())
-
-# =========================
-# DATE PROCESSING
-# =========================
+# ---------------------------
+# Clean & align sentiment data
+# ---------------------------
 sentiment['date'] = pd.to_datetime(sentiment['date']).dt.date
+sentiment['classification'] = sentiment['classification'].str.capitalize()
 
+# ---------------------------
+# Clean & align trades data
+# ---------------------------
 trades = trades.rename(columns={
     'Account': 'account',
     'Side': 'side',
@@ -32,26 +28,26 @@ trades = trades.rename(columns={
     'Timestamp': 'timestamp'
 })
 
-trades['date'] = pd.to_datetime(trades['timestamp']).dt.date
+trades['date'] = pd.to_datetime(trades['timestamp'], unit='ms').dt.date
 
-# =========================
-# MERGE (LEFT JOIN ON PURPOSE)
-# =========================
+# ---------------------------
+# Merge on date
+# ---------------------------
 merged = trades.merge(
     sentiment[['date', 'classification']],
     on='date',
     how='left'
 )
 
-merged['classification'] = merged['classification'].fillna('Unknown')
-
 print("\nMerged shape:", merged.shape)
 print("\nSentiment distribution after merge:")
-print(merged['classification'].value_counts())
+print(merged['classification'].value_counts(dropna=False))
 
-# =========================
-# DAILY TRADER METRICS
-# =========================
+merged['classification'] = merged['classification'].fillna('Unknown')
+
+# ---------------------------
+# Daily metrics
+# ---------------------------
 daily_metrics = (
     merged
     .groupby(['account', 'date', 'classification'])
@@ -66,13 +62,12 @@ daily_metrics = (
 )
 
 daily_metrics['long_short_ratio'] = (
-    daily_metrics['long_trades'] /
-    (daily_metrics['short_trades'] + 1)
+    daily_metrics['long_trades'] / (daily_metrics['short_trades'] + 1)
 )
 
-# =========================
-# AGGREGATE ANALYSIS
-# =========================
+# ---------------------------
+# Analysis outputs
+# ---------------------------
 print("\nMean PnL by sentiment:")
 print(daily_metrics.groupby('classification')['daily_pnl'].mean())
 
@@ -83,42 +78,22 @@ print(
     .mean()
 )
 
-# =========================
-# TRADER SEGMENTATION
-# =========================
-if not daily_metrics.empty:
-    daily_metrics['freq_segment'] = pd.qcut(
-        daily_metrics['trades_count'],
-        q=2,
-        labels=['Infrequent', 'Frequent']
-    )
-
-    daily_metrics['performance_segment'] = daily_metrics['daily_pnl'].apply(
-        lambda x: 'Winner' if x > 0 else 'Loser'
-    )
-
-    print("\nPerformance by frequency segment:")
-    print(
-        daily_metrics
-        .groupby(['classification', 'freq_segment'])['daily_pnl']
-        .mean()
-    )
-
-# =========================
-# VISUALIZATION
-# =========================
+# ---------------------------
+# Visualization
+# ---------------------------
+plt.figure(figsize=(8,5))
 sns.boxplot(
     x='classification',
     y='daily_pnl',
-    data=daily_metrics
+    data=daily_metrics[daily_metrics['classification'] != 'Unknown']
 )
 plt.title("Daily Trader PnL by Market Sentiment")
 plt.tight_layout()
 plt.savefig("pnl_by_sentiment.png")
-plt.close()
+plt.show()
 
-# =========================
-# SAVE OUTPUT
-# =========================
+# ---------------------------
+# Save output
+# ---------------------------
 daily_metrics.to_csv("daily_trader_metrics.csv", index=False)
-print("\nSaved daily_trader_metrics.csv and pnl_by_sentiment.png")
+print("\nSaved daily_trader_metrics.csv")
